@@ -9,6 +9,7 @@
 #include <linux/tty.h>
 #include <linux/tty_driver.h>
 #include <linux/version.h>
+#include <linux/gpio.h>
 
 #define SOFT_UART_MAJOR            0
 #define N_PORTS                    1
@@ -61,7 +62,7 @@ static int  soft_uart_write(struct tty_struct*, const unsigned char*, int);
 static int  soft_uart_write_room(struct tty_struct*);
 static void soft_uart_flush_buffer(struct tty_struct*);
 static int  soft_uart_chars_in_buffer(struct tty_struct*);
-static void soft_uart_set_termios(struct tty_struct*, struct ktermios*);
+static void soft_uart_set_termios(struct tty_struct*, const struct ktermios*);
 static void soft_uart_stop(struct tty_struct*);
 static void soft_uart_start(struct tty_struct*);
 static void soft_uart_hangup(struct tty_struct*);
@@ -141,7 +142,7 @@ static int __init soft_uart_init(void)
 
   // Initializes the port.
   tty_port_init(&port);
-  port.low_latency = 0;
+  //port.low_latency = 0;
 
   // Allocates the driver.
   soft_uart_driver = tty_alloc_driver(N_PORTS, TTY_DRIVER_REAL_RAW);
@@ -192,7 +193,7 @@ static int __init soft_uart_init(void)
   if (tty_register_driver(soft_uart_driver))
   {
     printk(KERN_ALERT "soft_uart: Failed to register the driver.\n");
-    put_tty_driver(soft_uart_driver);
+    tty_driver_kref_put(soft_uart_driver);
     return -1; // return if registration fails
   }
 
@@ -214,12 +215,8 @@ static void __exit soft_uart_exit(void)
   }
   
   // Unregisters the driver.
-  if (tty_unregister_driver(soft_uart_driver))
-  {
-    printk(KERN_ALERT "soft_uart: Failed to unregister the driver.\n");
-  }
-
-  put_tty_driver(soft_uart_driver);
+  tty_unregister_driver(soft_uart_driver);
+  tty_driver_kref_put(soft_uart_driver);
   printk(KERN_INFO "soft_uart: Module finalized.\n");
 }
 
@@ -317,7 +314,7 @@ static int soft_uart_chars_in_buffer(struct tty_struct* tty)
  * @param tty given TTY
  * @param termios parameters
  */
-static void soft_uart_set_termios(struct tty_struct* tty, struct ktermios* termios)
+static void soft_uart_set_termios(struct tty_struct* tty, const struct ktermios* termios)
 {
   int cflag = 0;
   speed_t baudrate = tty_get_baud_rate(tty);

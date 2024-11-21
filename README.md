@@ -18,7 +18,7 @@ This module creates a software-based serial port using a configurable pair of GP
 
 Fetch the source:
 ```
-git clone https://github.com/adrianomarto/soft_uart
+git clone https://github.com/dasrue/soft_uart
 ```
 
 Install the package `raspberrypi-kernel-headers`:
@@ -40,21 +40,28 @@ I haven't tried cross-compiling this module, but it should work as well.
 
 Module parameters:
 
-* gpio_tx: int [default = 17]
-* gpio_rx: int [default = 27]
+* gpio_tx: int [default = 17] (Transmit GPIO)
+* gpio_rx: int [default = 27] (Receive GPIO)
+* invert: int [default = 0] (Invert signal polarity)
 
 Loading the module with default parameters:
 ```
 sudo insmod soft_uart.ko
 ```
 
+This driver uses the old GPIO API that uses the global GPIO number-space. The GPIO numbers start around 512. To find the global GPIO number:
+```
+cat /sys/kernel/debug/gpio
+```
+
 Loading module with custom parameters:
 ```
-sudo insmod soft_uart.ko gpio_tx=10 gpio_rx=11
+sudo insmod soft_uart.ko gpio_tx=514 gpio_rx=515 invert=0
 ```
 
 
 ## Usage
+
 
 The device will appear as `/dev/ttySOFT0`. Use it as any usual TTY device.
 
