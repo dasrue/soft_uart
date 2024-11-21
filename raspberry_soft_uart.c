@@ -407,7 +407,7 @@ static enum hrtimer_restart handle_rx(struct hrtimer* timer)
   if (rx_bit_index < 0)
   {
     // Start bit : rx_bit_index=-1
-    if (rx_bit == invert_rx)
+    if (rx_bit == 0)
     {
       // Start bit as expected
       hrtimer_forward(&timer_rx, captured_time, period);
@@ -435,7 +435,7 @@ static enum hrtimer_restart handle_rx(struct hrtimer* timer)
   else
   {
     // Stop Bit : rx_bit_index = 0
-    if (rx_bit == invert_rx)
+    if (rx_bit == 0)
     {
       // Break / Framing error
       if ( (break_rx>=0) && (character==0x00) )
