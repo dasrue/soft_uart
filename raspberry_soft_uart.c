@@ -1,4 +1,7 @@
-
+// Original author : Adriano Marto Reis
+// Original sourc  : https://github.com/adrianomarto/soft_uart
+// Modified by     : Hippy
+            
 #include "raspberry_soft_uart.h"
 #include "queue.h"
 
@@ -9,6 +12,11 @@
 #include <linux/tty.h>
 #include <linux/tty_flip.h>
 #include <linux/version.h>
+// Hippy - Added Below
+#include <linux/module.h>
+#include <linux/delay.h>
+#include <asm/div64.h>
+// Hippy - Added Above
 
 static irq_handler_t handle_rx_start(unsigned int irq, void* device, struct pt_regs* registers);
 static enum hrtimer_restart handle_tx(struct hrtimer* timer);
@@ -24,6 +32,14 @@ static ktime_t period;
 static int gpio_tx = 0;
 static int gpio_rx = 0;
 static int rx_bit_index = -1;
+// Hippy - Added Below
+static int invert_tx = 0;
+static int invert_rx = 0;
+static int stop_bits = 0;
+static int break_tx = -1;
+static int break_rx = -1;
+static int us = 0;
+// Hippy - Added Above
 
 /**
  * Initializes the Raspberry Soft UART infrastructure.
@@ -34,10 +50,13 @@ static int rx_bit_index = -1;
  * @param gpio_rx GPIO pin used as RX
  * @return 1 if the initialization is successful. 0 otherwise.
  */
-int raspberry_soft_uart_init(const int _gpio_tx, const int _gpio_rx)
+// Hippy Changed Below
+// int raspberry_soft_uart_init(const int _gpio_tx, const int _gpio_rx)
+   int raspberry_soft_uart_init(const int _gpio_tx, const int _gpio_rx, const int _invert, const int _invert_tx, const int _invert_rx, const int _stop_bits, const int _break_tx, const int _break_rx)
+// Hippy - Changed Above
 {
   bool success = true;
-  
+
   mutex_init(&current_tty_mutex);
   
   // Initializes the TX timer.
@@ -51,22 +70,66 @@ int raspberry_soft_uart_init(const int _gpio_tx, const int _gpio_rx)
   // Initializes the GPIO pins.
   gpio_tx = _gpio_tx;
   gpio_rx = _gpio_rx;
-    
-  success &= gpio_request(gpio_tx, "soft_uart_tx") == 0;
-  success &= gpio_direction_output(gpio_tx, 1) == 0;
 
-  success &= gpio_request(gpio_rx, "soft_uart_rx") == 0;
-  success &= gpio_direction_input(gpio_rx) == 0;
-  
+  // Hippy - Added Below
+  invert_tx = ( _invert_tx ^ _invert ) & 1;
+  invert_rx = ( _invert_rx ^ _invert ) & 1;
+  break_tx = _break_tx;
+  break_rx = _break_rx;
+  if ( _stop_bits <= 0 )
+  {
+    stop_bits = 1;
+  }
+  else
+  {
+    stop_bits = _stop_bits;
+  }
+  // Hippy - Added Above
+
+  if (gpio_tx >= 0)
+  {    
+    success &= gpio_request(gpio_tx, "soft_uart_tx") == 0;
+    success &= gpio_direction_output(gpio_tx, 1) == 0;
+  }
+
+  if (gpio_rx >= 0 )
+  {
+    success &= gpio_request(gpio_rx, "soft_uart_rx") == 0;
+    success &= gpio_direction_input(gpio_rx) == 0;
+  }
+
   // Initializes the interruption.
-  success &= request_irq(
-    gpio_to_irq(gpio_rx),
-    (irq_handler_t) handle_rx_start,
-    IRQF_TRIGGER_FALLING,
-    "soft_uart_irq_handler",
-    NULL) == 0;
-  disable_irq(gpio_to_irq(gpio_rx));
-    
+  // Hippy - Added Below
+  if (gpio_rx >= 0)
+  {
+    if ( invert_rx == 0 )
+    {
+    // Hippy - Added Above
+    success &= request_irq(
+      gpio_to_irq(gpio_rx),
+      (irq_handler_t) handle_rx_start,
+      IRQF_TRIGGER_FALLING,
+      "soft_uart_irq_handler",
+      NULL) == 0;
+    disable_irq(gpio_to_irq(gpio_rx));
+    // Hippy - Added Below
+    }
+    else
+    {
+    success &= request_irq(
+      gpio_to_irq(gpio_rx),
+      (irq_handler_t) handle_rx_start,
+      IRQF_TRIGGER_RISING,
+      "soft_uart_irq_handler",
+      NULL) == 0;
+    disable_irq(gpio_to_irq(gpio_rx));
+    };
+    if (success && (gpio_tx >= 0) )
+    {
+      gpio_set_value(gpio_tx,1 ^ invert_tx);
+    }
+  }
+  // Hippy - Added Above    
   return success;
 }
 
@@ -75,10 +138,22 @@ int raspberry_soft_uart_init(const int _gpio_tx, const int _gpio_rx)
  */
 int raspberry_soft_uart_finalize(void)
 {
-  free_irq(gpio_to_irq(gpio_rx), NULL);
-  gpio_set_value(gpio_tx, 0);
-  gpio_free(gpio_tx);
-  gpio_free(gpio_rx);
+  if (gpio_rx >= 0)
+  {
+    free_irq(gpio_to_irq(gpio_rx), NULL);
+  }
+  if (gpio_tx >= 0)
+  {
+    gpio_set_value(gpio_tx, 0);
+    // Hippy - Added Below
+    gpio_direction_input(gpio_rx);
+    // Hippy - Added Above
+    gpio_free(gpio_tx);
+  }
+  if (gpio_rx >= 0)
+  {
+    gpio_free(gpio_rx);
+  }
   return 1;
 }
 
@@ -94,9 +169,16 @@ int raspberry_soft_uart_open(struct tty_struct* tty)
   if (current_tty == NULL)
   {
     current_tty = tty;
-    initialize_queue(&queue_tx);
+    if (gpio_tx >= 0)
+    {
+      initialize_queue(&queue_tx);
+      queue_set_break_char(break_tx);
+    }
+    if (gpio_rx >= 0)
+    {
+      enable_irq(gpio_to_irq(gpio_rx));
+    }
     success = 1;
-    enable_irq(gpio_to_irq(gpio_rx));
   }
   mutex_unlock(&current_tty_mutex);
   return success;
@@ -111,9 +193,15 @@ int raspberry_soft_uart_close(void)
   mutex_lock(&current_tty_mutex);
   if (current_tty != NULL)
   {
-    disable_irq(gpio_to_irq(gpio_rx));
-    hrtimer_cancel(&timer_tx);
-    hrtimer_cancel(&timer_rx);
+    if (gpio_rx >= 0)
+    {
+      disable_irq(gpio_to_irq(gpio_rx));
+      hrtimer_cancel(&timer_rx);
+    }
+    if (gpio_tx >= 0)
+    {
+      hrtimer_cancel(&timer_tx);
+    }
     current_tty = NULL;
     success = 1;
   }
@@ -129,7 +217,23 @@ int raspberry_soft_uart_close(void)
 int raspberry_soft_uart_set_baudrate(const int baudrate) 
 {
   period = ktime_set(0, 1000000000/baudrate);
-  gpio_set_debounce(gpio_rx, 1000/baudrate/2);
+  if (gpio_rx >= 0)
+  {
+    gpio_set_debounce(gpio_rx, 1000/baudrate/2);
+  }
+  // Hippy - Added Below
+  if      (baudrate ==   9600) { us = 104; } // 104.16
+  else if (baudrate ==  19200) { us =  52; } //  52.08
+  else if (baudrate ==  38400) { us =  26; } //  26.04
+  else if (baudrate ==  76800) { us =  13; } //  13.02
+  else if (baudrate ==   7200) { us = 139; } // 138.88
+  else if (baudrate ==  14400) { us =  69; } //  69.44
+  else if (baudrate ==  28800) { us =  35; } //  34.72
+  else if (baudrate ==  57600) { us =  17; } //  17.36
+  else if (baudrate == 115200) { us =   8; } //   8.68
+  else                         { us =   0; }
+  printk(KERN_INFO "soft_uart:   period = %llu, us = %d\n", period,us);
+  // Hippy - Added Above
   return 1;
 }
 
@@ -141,14 +245,20 @@ int raspberry_soft_uart_set_baudrate(const int baudrate)
  */
 int raspberry_soft_uart_send_string(const unsigned char* string, int string_size)
 {
-  int result = enqueue_string(&queue_tx, string, string_size);
-  
-  // Starts the TX timer if it is not already running.
-  if (!hrtimer_active(&timer_tx))
+  // Hippy - Changed Below
+  int result = 1;
+  if (gpio_tx  >= 0)
   {
-    hrtimer_start(&timer_tx, period, HRTIMER_MODE_REL);
-  }
+    result = enqueue_string(&queue_tx, string, string_size);
   
+    // Starts the TX timer if it is not already running.
+    if (!hrtimer_active(&timer_tx))
+    {
+      hrtimer_start(&timer_tx, period, HRTIMER_MODE_REL);
+    }
+  }
+  // Hippy - Changed Above
+
   return result;
 }
 
@@ -183,6 +293,10 @@ static irq_handler_t handle_rx_start(unsigned int irq, void* device, struct pt_r
   if (rx_bit_index == -1)
   {
     hrtimer_start(&timer_rx, ktime_set(0, period / 2), HRTIMER_MODE_REL);
+    // Hippy - Added Below - Testing control of interrupts
+    // See : https://github.com/adrianomarto/soft_uart/issues/4
+       disable_irq_nosync(gpio_to_irq(gpio_rx)); 
+    // Hippy - Added Above 
   }
   return (irq_handler_t) IRQ_HANDLED;
 }
@@ -193,48 +307,73 @@ static irq_handler_t handle_rx_start(unsigned int irq, void* device, struct pt_r
  */
 static enum hrtimer_restart handle_tx(struct hrtimer* timer)
 {
-  ktime_t current_time = ktime_get();
-  static unsigned char character = 0;
-  static int bit_index = -1;
-  enum hrtimer_restart result = HRTIMER_NORESTART;
-  bool must_restart_timer = false;
-  
+  static int character = 0;
+  static int bit_count = 0;
+
+  // Hippy - Changed Below - Speed improvements and more consistent timing
+
   // Start bit.
-  if (bit_index == -1)
+  if (bit_count == 0)
   {
     if (dequeue_character(&queue_tx, &character))
     {
-      gpio_set_value(gpio_tx, 0);
-      bit_index++;
-      must_restart_timer = true;
+      if (character == SET_BREAK_VAL) // -2 0xFFFE - Set Break (lsb=0)
+      {
+        gpio_set_value(gpio_tx, invert_tx);
+        hrtimer_forward(&timer_tx, ktime_get(), period);
+        bit_count = 9 + stop_bits;
+        return HRTIMER_RESTART;
+      }
+      else if (character == CLR_BREAK_VAL) // -1 0xFFFF - Clear Break (lsb=1)
+      {
+        gpio_set_value(gpio_tx, 1 ^ invert_tx);
+        hrtimer_forward(&timer_tx, ktime_get(), period);
+        bit_count = 8 + stop_bits;
+        return HRTIMER_RESTART;
+      }
+      else if (us != 0) // If fast baud then don't swap out
+      {
+        gpio_set_value(gpio_tx, invert_tx); udelay(us);
+        gpio_set_value(gpio_tx, ( ( character >> 0 ) & 1 ) ^ invert_tx); udelay(us);
+        gpio_set_value(gpio_tx, ( ( character >> 1 ) & 1 ) ^ invert_tx); udelay(us);
+        gpio_set_value(gpio_tx, ( ( character >> 2 ) & 1 ) ^ invert_tx); udelay(us);
+        gpio_set_value(gpio_tx, ( ( character >> 3 ) & 1 ) ^ invert_tx); udelay(us);
+        gpio_set_value(gpio_tx, ( ( character >> 4 ) & 1 ) ^ invert_tx); udelay(us);
+        gpio_set_value(gpio_tx, ( ( character >> 5 ) & 1 ) ^ invert_tx); udelay(us);
+        gpio_set_value(gpio_tx, ( ( character >> 6 ) & 1 ) ^ invert_tx); udelay(us);
+        gpio_set_value(gpio_tx, ( ( character >> 7 ) & 1 ) ^ invert_tx); udelay(us);
+        gpio_set_value(gpio_tx, 1 ^ invert_tx);
+        character = 0xFF;
+        bit_count = stop_bits-1;
+        hrtimer_forward(&timer_tx, ktime_get(), period);
+        return HRTIMER_RESTART;
+      }
+      else
+      {
+        gpio_set_value(gpio_tx, invert_tx);
+        hrtimer_forward(&timer_tx, ktime_get(), period);
+        bit_count = 8 + stop_bits;
+        return HRTIMER_RESTART;
+      }
     }
   }
   
-  // Data bits.
-  else if (0 <= bit_index && bit_index < 8)
+  // Data bits plus Stop bits
+  else
   {
-    gpio_set_value(gpio_tx, 1 & (character >> bit_index));
-    bit_index++;
-    must_restart_timer = true;
+    gpio_set_value(gpio_tx, ( character & 1 ) ^ invert_tx);
+    hrtimer_forward(&timer_tx, ktime_get(), period);
+    if (character >= 0)
+    {
+      character = ( character >> 1 ) | 0x80;
+    }
+    bit_count--;
+    return HRTIMER_RESTART;  
   }
-  
-  // Stop bit.
-  else if (bit_index == 8)
-  {
-    gpio_set_value(gpio_tx, 1);
-    character = 0;
-    bit_index = -1;
-    must_restart_timer = get_queue_size(&queue_tx) > 0;
-  }
-  
-  // Restarts the TX timer.
-  if (must_restart_timer)
-  {
-    hrtimer_forward(&timer_tx, current_time, period);
-    result = HRTIMER_RESTART;
-  }
-  
-  return result;
+
+  return HRTIMER_NORESTART;
+
+  // Hippy - Changed Above
 }
 
 /*
@@ -242,52 +381,78 @@ static enum hrtimer_restart handle_tx(struct hrtimer* timer)
  */
 static enum hrtimer_restart handle_rx(struct hrtimer* timer)
 {
-  ktime_t current_time = ktime_get();
-  static unsigned int character = 0;
-  int bit_value = gpio_get_value(gpio_rx);
-  enum hrtimer_restart result = HRTIMER_NORESTART;
-  bool must_restart_timer = false;
-  
-  // Start bit.
-  if (rx_bit_index == -1)
+  // Hippy - Changed below - Speed and accuracy improvements
+
+  static int character = 0;
+  ktime_t captured_time = ktime_get();
+  int rx_bit = gpio_get_value(gpio_rx) ^ invert_rx;
+  if (rx_bit_index < 0)
   {
-    rx_bit_index++;
-    character = 0;
-    must_restart_timer = true;
-  }
-  
-  // Data bits.
-  else if (0 <= rx_bit_index && rx_bit_index < 8)
-  {
-    if (bit_value == 0)
+    // Start bit : rx_bit_index=-1
+    if (rx_bit == invert_rx)
     {
-      character &= 0xfeff;
+      // Start bit as expected
+      hrtimer_forward(&timer_rx, captured_time, period);
+      rx_bit_index = 8;
+      return HRTIMER_RESTART;
     }
     else
     {
-      character |= 0x0100;
+      // False start bit - Ignore
+      // Hippy - Added Below - Testing control of interrupts
+      // See : https://github.com/adrianomarto/soft_uart/issues/4
+         enable_irq(gpio_to_irq(gpio_rx));
+      // Hippy - Added Above
+      return HRTIMER_NORESTART;
     }
-    
-    rx_bit_index++;
-    character >>= 1;
-    must_restart_timer = true;
   }
-  
-  // Stop bit.
-  else if (rx_bit_index == 8)
+  else if (rx_bit_index > 0)
   {
-    receive_character(character);
+    // Data bits : rx_bit_index=8..1
+    hrtimer_forward(&timer_rx, captured_time, period);
+    character = ( character >> 1 ) | ( rx_bit << 7 );
+    rx_bit_index--;
+    return HRTIMER_RESTART;
+  }
+  else
+  {
+    // Stop Bit : rx_bit_index = 0
+    if (rx_bit == invert_rx)
+    {
+      // Break / Framing error
+      if ( (break_rx>=0) && (character==0x00) )
+      {
+        receive_character(break_rx);
+        receive_character(0x01);
+      }
+      else
+      {
+        // Hippy - Or should we ignore framing errors ?
+        receive_character(character);
+      }
+    }
+    else
+    {
+      // Stop bit correct - Received character
+      if (character == break_rx)
+      {
+        receive_character(break_rx);
+        receive_character(0x00);
+      }
+      else
+      {
+        receive_character(character);
+      }
+    }
     rx_bit_index = -1;
+    // Hippy - Added Below - Testing control of interrupts
+    // See : https://github.com/adrianomarto/soft_uart/issues/4
+       enable_irq(gpio_to_irq(gpio_rx));
+    // Hippy - Added Above
+    return HRTIMER_NORESTART;
   }
-  
-  // Restarts the RX timer.
-  if (must_restart_timer)
-  {
-    hrtimer_forward(&timer_rx, current_time, period);
-    result = HRTIMER_RESTART;
-  }
-  
-  return result;
+
+  // Hippy - Changed Above
 }
 
 /**

@@ -1,0 +1,23 @@
+Check gpio_tx = -1 disables tx
+Check gpio_rx = -1 disables rx
+
+Set inital baud rate
+
+Need a proper IOCTL Set Break / Clear Break interface
+
+Add a "." to end of device if it ends with a digit, update CHANGES.txt
+
+Check break_tx passes up hierachy and handled
+Check break_rx handled
+
+Add break ended on rx
+
+Consider CPU bound timing for rx
+Consider over-sampling for rx
+
+Consider adding parity 0=None, 1=Odd, 2=Even
+
+Tidy up own additions
+
+Submit pull request
+

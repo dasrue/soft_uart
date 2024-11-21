@@ -1,4 +1,24 @@
+// Original author : Adriano Marto Reis
+// Original sourc  : https://github.com/adrianomarto/soft_uart
+// Modified by     : Hippy
+            
 #include "queue.h"
+
+// Hippy - Added Below
+// #include <linux/module.h>
+
+static int break_char    = -1;
+static int break_pending = 0;
+static int break_active  = 0;
+
+void queue_set_break_char(int _break_char)
+{
+  break_char    = _break_char;
+  break_pending = 0;
+  break_active  = 0;
+}
+
+// Hippy - Added Above
 
 /**
  * Initializes a given queue.
@@ -17,9 +37,44 @@ void initialize_queue(struct queue* queue)
  * @param character given character
  * @return 1 if the character is added to the queue. 0 if the queue is full.
  */
-int enqueue_character(struct queue* queue, const unsigned char character)
+int enqueue_character(struct queue* queue, int character)
 {
   int success = 0;
+
+  if (break_char >= 0)
+  {
+    if ( character >= 0 )
+    {
+      if (break_pending != 0)
+      {
+        if (character == 1)
+        {
+          character = SET_BREAK_VAL;
+          break_active = 1;
+        }
+        else if (character == 2)
+        {
+          character = CLR_BREAK_VAL;
+          break_active = 0;
+        }
+        else
+        {
+          if (break_active != 0) { enqueue_character(queue, CLR_BREAK_VAL); }
+          character = break_char;
+        }
+        break_pending = 0;
+      }
+      else if (character == break_char)
+      {
+        break_pending = 1;
+        return 1;
+      }
+      else if (break_active != 0) { enqueue_character(queue, CLR_BREAK_VAL); }
+    }
+  }
+
+  // Hippy printk(KERN_INFO "soft_uart:   EnQueue %d\n", character);
+
   if (queue->size < QUEUE_MAX_SIZE)
   {
     if (queue->size != 0)
@@ -48,7 +103,7 @@ int enqueue_character(struct queue* queue, const unsigned char character)
  * @param character a character
  * @return 1 if a character is fetched from the queue. 0 if the queue is empy.
  */
-int dequeue_character(struct queue* queue, unsigned char* character)
+int dequeue_character(struct queue* queue, int* character)
 {
   int success = 0;
   if (queue->size > 0)

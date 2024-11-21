@@ -1,0 +1,113 @@
+This is based on the work of Adriano Marto Reis
+
+  See: https://github.com/adrianomarto/soft_uart
+
+Modificatio of source noted.
+Author details updated.
+Internal version number bumped to "1.0"
+
+Updated 'gpio_tx' to selectively enable transmit, changed default pin
+
+  =-1 Disable transmission, no GPIO used
+  =22 New default
+  =17 Original default 
+
+  Note gpio_tx pin is returned to an input when the driver shits down.
+ 
+Updated 'gpio_rx' to selectively enable receive
+
+  =-1 Disable reception, no GPIO used
+  =27 Default
+
+Added 'invert', "invert_tx' and 'invert_rx' to invert signal polarity
+
+  =0 UART idle high polarity, start bit=0 (default)
+  =1 RS232 idle low polarity, start bit=1
+
+  The invert affects both signals, invert_tx affects only transmission, 
+  invert_rx affects only receive.
+
+  They are combinational so "invert=1 invert_tx=1" would invert receive but
+  not invert receive.
+
+Added 'stop_bits' for number of stop bits
+
+  =1 (default)
+  =2 two stop bits
+  
+  This only affects transmit. Used in larger values this can be used to
+  provide pacing for systems which cannot handle back-to-back data and needs
+  a gap between bytes. For example to add 5ms gap between bytes at 4800, each
+  bit is 208us, so that's the equivalent of about 25 stop bits. 
+
+  Any value of 0 or below is treated as 1 stop bit.
+
+  Note that the number of stop bits cannot be set when opening the device 
+  from within a program; 1 stop bit must be specified.
+
+Add 'device' to set device name
+
+  =ttySOFT   (default)
+  =ttyPICAXE
+
+  This allows the device to appear under /dev with a different name than the
+  "ttySOFT" defined by the original author.
+
+Add 'break_tx' allow in-band 'break signal' generation
+
+  =-1   (default)
+  =0x??
+
+  This allows a character byte code to be used to insert 'break signal'
+  generation in-band with the transmission stream -
+
+    0x?? 0x00 - Generates 0x??
+    0x?? 0x01 - Asserts a 'break signal'
+    0x?? 0x02 - Deasserts the 'break signal'
+    0x?? 0xNN - Reserved for future use
+
+  When 'break signal' is asserted it will be cleared whenerver any other
+  character is sent.
+
+  Example, for Python
+
+  ser.write( "U" + chr(0xBB)+chr(0x00) + chr(0xBB)+chr(0x01) + "U" )
+
+  This will send 0x55, 0xBB, assert break, deassert break, 0x55 
+
+  When break_tx is not set, every character will be sent out as is and
+  there will be no in-band break signalling.
+
+Added 'break_rx' to allow in-band break detection
+
+  =-1 (default)
+  =0x??
+
+  This allows break received to be signalled in-band to teh receiving 
+  program.
+
+  When break_rx=-1 characters are returned as normal, break is currently
+  returned as 0x00.
+
+  When break_rx=0x?? a two-byte sequence will be received when the in-banc
+  break character or an actual break is received -
+
+    0x?? 0x00 - 0x?? received
+    0x?? 0x01 - Break detected
+    0x?? 0x02 - Break ended - Not currntly returned
+
+Installation
+
+  sudo apt-get install raspberrypi-kernel-headers
+  mkdir ~/soft_uart
+  cd ~/soft_uart
+  # -- Save soft_uart_hippy.tar.gz to ~/soft_uart
+  tar -zxvf soft_uart_hippy.tar.gz
+  make
+  make install
+  sudo insmod soft_uart.ko gpio_tx=22 gpio_rx=27 invert=1
+
+  Access is via /dev/ttySOFT0
+
+  modinfo soft_uart
+  sudo rmmod soft_uart.ko

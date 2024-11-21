@@ -1,3 +1,6 @@
+// Original author : Adriano Marto Reis
+// Original sourc  : https://github.com/adrianomarto/soft_uart
+// Modified by     : Hippy
 
 #include "raspberry_soft_uart.h"
 
@@ -13,23 +16,51 @@
 #define TX_BUFFER_FLUSH_TIMEOUT 4000  // milliseconds
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Adriano Marto Reis");
+MODULE_AUTHOR("Original: Adriano Marto Reis / Modified: Hippy");
 MODULE_DESCRIPTION("Software-UART for Raspberry Pi");
-MODULE_VERSION("0.2");
+MODULE_VERSION("1.0");
 
-static int gpio_tx = 17;
+// Hippy - Changed Below
+// static int gpio_tx = 17;
+   static int gpio_tx = 22;
+// Hippy - Changed Above
 module_param(gpio_tx, int, 0);
-
+MODULE_PARM_DESC(gpio_tx,"Transmit from Pi pin");
 static int gpio_rx = 27;
 module_param(gpio_rx, int, 0);
+MODULE_PARM_DESC(gpio_rx,"Receive into Pi pin");
+
+// Hippy - Added Below
+static int invert = 0;
+module_param(invert, int, 0);
+MODULE_PARM_DESC(invert,"Invert signal polarity");
+static int invert_tx = 0;
+module_param(invert_tx, int, 0);
+MODULE_PARM_DESC(invert_tx,"Invert transmit signal polarity");
+static int invert_rx = 0;
+module_param(invert_rx, int, 0);
+MODULE_PARM_DESC(invert_rx,"Invert receive signal polarity");
+static int stop_bits = 1;
+module_param(stop_bits, int, 0);
+MODULE_PARM_DESC(stop_bits,"Number of stop bits on transmit");
+static int break_tx = -1;
+module_param(break_tx, int, 0);
+MODULE_PARM_DESC(break_tx, "Transmit break sequence character");
+static int break_rx = -1;
+module_param(break_rx, int, 0);
+MODULE_PARM_DESC(break_rx, "Receive break sequence character");
+static char *device = "ttySOFT";
+module_param(device, charp, 0000);
+MODULE_PARM_DESC(device,"Device name");
+// Hippy - Added Above
 
 // Module prototypes.
 static int  soft_uart_open(struct tty_struct*, struct file*);
 static void soft_uart_close(struct tty_struct*, struct file*);
 static int  soft_uart_write(struct tty_struct*, const unsigned char*, int);
-static unsigned int soft_uart_write_room(struct tty_struct*);
+static int  soft_uart_write_room(struct tty_struct*);
 static void soft_uart_flush_buffer(struct tty_struct*);
-static unsigned int soft_uart_chars_in_buffer(struct tty_struct*);
+static int  soft_uart_chars_in_buffer(struct tty_struct*);
 static void soft_uart_set_termios(struct tty_struct*, struct ktermios*);
 static void soft_uart_stop(struct tty_struct*);
 static void soft_uart_start(struct tty_struct*);
@@ -71,9 +102,35 @@ static struct tty_port port;
  */
 static int __init soft_uart_init(void)
 {
+  // Hippy - Added Below
   printk(KERN_INFO "soft_uart: Initializing module...\n");
-  
-  if (!raspberry_soft_uart_init(gpio_tx, gpio_rx))
+  printk(KERN_INFO "soft_uart:   device     = /dev/%s0\n", device);
+  if (gpio_tx < 0)
+  { printk(KERN_INFO "soft_uart:   gpio_tx   = None\n"); }
+  else
+  { printk(KERN_INFO "soft_uart:   gpio_tx   = %d\n", gpio_tx); }
+  if (gpio_rx < 0)
+  { printk(KERN_INFO "soft_uart:   gpio_rx   = None\n"); }
+  else
+  { printk(KERN_INFO "soft_uart:   gpio_rx   = %d\n", gpio_rx); }
+  printk(KERN_INFO "soft_uart:   invert    = %d\n", invert);
+  printk(KERN_INFO "soft_uart:   invert_tx = %d\n", invert_tx);
+  printk(KERN_INFO "soft_uart:   invert_rx = %d\n", invert_rx);
+  printk(KERN_INFO "soft_uart:   stop_bits = %d\n", stop_bits);
+  if (break_tx < 0)
+  { printk(KERN_INFO "soft_uart:   break_tx  = None\n"); }
+  else
+  { printk(KERN_INFO "soft_uart:   break_tx  = 0x%02X\n", break_tx); }
+  if (break_rx < 0)
+  { printk(KERN_INFO "soft_uart:   break_rx  = None\n"); }
+  else
+  { printk(KERN_INFO "soft_uart:   break_rx  = 0x%02X\n", break_rx); }
+  // Hippy Added Above
+
+// Hippy - Changed Below  
+// if (!raspberry_soft_uart_init(gpio_tx, gpio_rx))
+   if (!raspberry_soft_uart_init(gpio_tx, gpio_rx, invert, invert_tx, invert_rx, stop_bits, break_tx, break_rx))
+// Hippy - Changed Above
   {
     printk(KERN_ALERT "soft_uart: Failed initialize GPIO.\n");
     return -ENOMEM;
@@ -84,6 +141,7 @@ static int __init soft_uart_init(void)
 
   // Initializes the port.
   tty_port_init(&port);
+  port.low_latency = 0;
 
   // Allocates the driver.
   soft_uart_driver = tty_alloc_driver(N_PORTS, TTY_DRIVER_REAL_RAW);
@@ -111,7 +169,7 @@ static int __init soft_uart_init(void)
   // Initializes the driver.
   soft_uart_driver->owner                 = THIS_MODULE;
   soft_uart_driver->driver_name           = "soft_uart";
-  soft_uart_driver->name                  = "ttySOFT";
+  soft_uart_driver->name                  = device;
   soft_uart_driver->major                 = SOFT_UART_MAJOR;
   soft_uart_driver->minor_start           = 0;
   soft_uart_driver->flags                 = TTY_DRIVER_REAL_RAW;
@@ -134,7 +192,7 @@ static int __init soft_uart_init(void)
   if (tty_register_driver(soft_uart_driver))
   {
     printk(KERN_ALERT "soft_uart: Failed to register the driver.\n");
-    tty_driver_kref_put(soft_uart_driver);
+    put_tty_driver(soft_uart_driver);
     return -1; // return if registration fails
   }
 
@@ -156,9 +214,12 @@ static void __exit soft_uart_exit(void)
   }
   
   // Unregisters the driver.
-  tty_unregister_driver(soft_uart_driver);
+  if (tty_unregister_driver(soft_uart_driver))
+  {
+    printk(KERN_ALERT "soft_uart: Failed to unregister the driver.\n");
+  }
 
-  tty_driver_kref_put(soft_uart_driver);
+  put_tty_driver(soft_uart_driver);
   printk(KERN_INFO "soft_uart: Module finalized.\n");
 }
 
@@ -228,7 +289,7 @@ static int soft_uart_write(struct tty_struct* tty, const unsigned char* buffer, 
  * @param tty given TTY
  * @return number of bytes
  */
-static unsigned int soft_uart_write_room(struct tty_struct* tty)
+static int soft_uart_write_room(struct tty_struct* tty)
 {
   return raspberry_soft_uart_get_tx_queue_room();
 }
@@ -246,7 +307,7 @@ static void soft_uart_flush_buffer(struct tty_struct* tty)
  * @param tty given TTY
  * @return number of bytes
  */
-static unsigned int soft_uart_chars_in_buffer(struct tty_struct* tty)
+static int soft_uart_chars_in_buffer(struct tty_struct* tty)
 {
   return raspberry_soft_uart_get_tx_queue_size();
 }
@@ -338,6 +399,7 @@ static int soft_uart_tiocmget(struct tty_struct* tty)
  */
 static int soft_uart_tiocmset(struct tty_struct* tty, unsigned int set, unsigned int clear)
 {
+  // Hippy printk(KERN_INFO "soft_uart: Hippy Trace : tiocmset\n");
   return 0;
 }
 
@@ -351,6 +413,8 @@ static int soft_uart_ioctl(struct tty_struct* tty, unsigned int command, unsigne
 {
   int error = NONE;
 
+  // Hippy printk(KERN_INFO "soft_uart: Hippy Trace : ioctl(0x%08X)\n",command);
+
   switch (command)
   {
     case TIOCMSET:
@@ -361,9 +425,9 @@ static int soft_uart_ioctl(struct tty_struct* tty, unsigned int command, unsigne
       error = NONE;
       break;
       
-      default:
-        error = -ENOIOCTLCMD;
-        break;
+    default:
+      error = -ENOIOCTLCMD;
+      break;
   }
 
   return error;
