@@ -30,6 +30,3 @@ rmmod:
 modinfo:
 	modinfo soft_uart
 
-release:
-	make clean
-	tar --exclude='.git' -zcvf /home/pi/soft_uart_hippy.tar.gz .

@@ -1,11 +1,4 @@
-// Original author : Adriano Marto Reis
-// Original sourc  : https://github.com/adrianomarto/soft_uart
-// Modified by     : Hippy
-            
 #include "queue.h"
-
-// Hippy - Added Below
-// #include <linux/module.h>
 
 static int break_char    = -1;
 static int break_pending = 0;
@@ -17,8 +10,6 @@ void queue_set_break_char(int _break_char)
   break_pending = 0;
   break_active  = 0;
 }
-
-// Hippy - Added Above
 
 /**
  * Initializes a given queue.
@@ -72,8 +63,6 @@ int enqueue_character(struct queue* queue, int character)
       else if (break_active != 0) { enqueue_character(queue, CLR_BREAK_VAL); }
     }
   }
-
-  // Hippy printk(KERN_INFO "soft_uart:   EnQueue %d\n", character);
 
   if (queue->size < QUEUE_MAX_SIZE)
   {

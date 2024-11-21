@@ -21,17 +21,13 @@ MODULE_AUTHOR("Original: Adriano Marto Reis / Modified: Hippy");
 MODULE_DESCRIPTION("Software-UART for Raspberry Pi");
 MODULE_VERSION("1.0");
 
-// Hippy - Changed Below
-// static int gpio_tx = 17;
-   static int gpio_tx = 22;
-// Hippy - Changed Above
+
+static int gpio_tx = 22;
 module_param(gpio_tx, int, 0);
 MODULE_PARM_DESC(gpio_tx,"Transmit from Pi pin");
 static int gpio_rx = 27;
 module_param(gpio_rx, int, 0);
 MODULE_PARM_DESC(gpio_rx,"Receive into Pi pin");
-
-// Hippy - Added Below
 static int invert = 0;
 module_param(invert, int, 0);
 MODULE_PARM_DESC(invert,"Invert signal polarity");
@@ -53,7 +49,6 @@ MODULE_PARM_DESC(break_rx, "Receive break sequence character");
 static char *device = "ttySOFT";
 module_param(device, charp, 0000);
 MODULE_PARM_DESC(device,"Device name");
-// Hippy - Added Above
 
 // Module prototypes.
 static int  soft_uart_open(struct tty_struct*, struct file*);
@@ -103,7 +98,6 @@ static struct tty_port port;
  */
 static int __init soft_uart_init(void)
 {
-  // Hippy - Added Below
   printk(KERN_INFO "soft_uart: Initializing module...\n");
   printk(KERN_INFO "soft_uart:   device     = /dev/%s0\n", device);
   if (gpio_tx < 0)
@@ -126,20 +120,13 @@ static int __init soft_uart_init(void)
   { printk(KERN_INFO "soft_uart:   break_rx  = None\n"); }
   else
   { printk(KERN_INFO "soft_uart:   break_rx  = 0x%02X\n", break_rx); }
-  // Hippy Added Above
 
-// Hippy - Changed Below  
-// if (!raspberry_soft_uart_init(gpio_tx, gpio_rx))
-   if (!raspberry_soft_uart_init(gpio_tx, gpio_rx, invert, invert_tx, invert_rx, stop_bits, break_tx, break_rx))
-// Hippy - Changed Above
+  if (!raspberry_soft_uart_init(gpio_tx, gpio_rx, invert, invert_tx, invert_rx, stop_bits, break_tx, break_rx))
   {
     printk(KERN_ALERT "soft_uart: Failed initialize GPIO.\n");
     return -ENOMEM;
   }
     
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
-  printk(KERN_INFO "soft_uart: LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0).\n");
-
   // Initializes the port.
   tty_port_init(&port);
   //port.low_latency = 0;
@@ -153,19 +140,6 @@ static int __init soft_uart_init(void)
     printk(KERN_ALERT "soft_uart: Failed to allocate the driver.\n");
     return -ENOMEM;
   }
-#else
-  printk(KERN_INFO "soft_uart: LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0).\n");
-
-  // Allocates the driver.
-  soft_uart_driver = alloc_tty_driver(N_PORTS);
-
-  // Returns if the allocation fails.
-  if (!soft_uart_driver)
-  {
-    printk(KERN_ALERT "soft_uart: Failed to allocate the driver.\n");
-    return -ENOMEM;
-  }
-#endif
 
   // Initializes the driver.
   soft_uart_driver->owner                 = THIS_MODULE;
@@ -184,10 +158,8 @@ static int __init soft_uart_init(void)
   // Sets the callbacks for the driver.
   tty_set_operations(soft_uart_driver, &soft_uart_operations);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
   // Link the port with the driver.
   tty_port_link_device(&port, soft_uart_driver, 0);
-#endif
 
   // Registers the TTY driver.
   if (tty_register_driver(soft_uart_driver))
@@ -321,11 +293,7 @@ static void soft_uart_set_termios(struct tty_struct* tty, const struct ktermios*
   printk(KERN_INFO "soft_uart: soft_uart_set_termios: baudrate = %d.\n", baudrate);
 
   // Gets the cflag.
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
   cflag = tty->termios.c_cflag;
-#else
-  cflag = tty->termios->c_cflag;
-#endif
 
   // Verifies the number of data bits (it must be 8).
   if ((cflag & CSIZE) != CS8)
@@ -396,7 +364,6 @@ static int soft_uart_tiocmget(struct tty_struct* tty)
  */
 static int soft_uart_tiocmset(struct tty_struct* tty, unsigned int set, unsigned int clear)
 {
-  // Hippy printk(KERN_INFO "soft_uart: Hippy Trace : tiocmset\n");
   return 0;
 }
 
@@ -409,8 +376,6 @@ static int soft_uart_tiocmset(struct tty_struct* tty, unsigned int set, unsigned
 static int soft_uart_ioctl(struct tty_struct* tty, unsigned int command, unsigned int long parameter)
 {
   int error = NONE;
-
-  // Hippy printk(KERN_INFO "soft_uart: Hippy Trace : ioctl(0x%08X)\n",command);
 
   switch (command)
   {

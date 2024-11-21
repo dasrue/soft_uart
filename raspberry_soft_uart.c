@@ -1,6 +1,3 @@
-// Original author : Adriano Marto Reis
-// Original sourc  : https://github.com/adrianomarto/soft_uart
-// Modified by     : Hippy
             
 #include "raspberry_soft_uart.h"
 #include "queue.h"
@@ -13,13 +10,10 @@
 #include <linux/tty.h>
 #include <linux/tty_flip.h>
 #include <linux/version.h>
-// Hippy - Added Below
 #include <linux/module.h>
 #include <linux/delay.h>
 #include <asm/div64.h>
-// Hippy - Added Above
 
-//static irq_handler_t handle_rx_start(unsigned int irq, void* device, struct pt_regs* registers);
 static irqreturn_t handle_rx_start(int irq, void *device);
 static enum hrtimer_restart handle_tx(struct hrtimer* timer);
 static enum hrtimer_restart handle_rx(struct hrtimer* timer);
@@ -32,20 +26,16 @@ static struct hrtimer timer_tx;
 static struct hrtimer timer_rx;
 static ktime_t period;
 static ktime_t half_period;
-//static struct gpio_desc *gpio_tx;
-//static struct gpio_desc *gpio_rx;
 static int gpio_tx = 0;
 static int gpio_rx = 0;
 static int rx_bit_index = -1;
 static void (*rx_callback)(unsigned char) = NULL;
-// Hippy - Added Below
 static int invert_tx = 0;
 static int invert_rx = 0;
 static int stop_bits = 0;
 static int break_tx = -1;
 static int break_rx = -1;
 static int us = 0;
-// Hippy - Added Above
 
 /**
  * Initializes the Raspberry Soft UART infrastructure.
@@ -56,10 +46,7 @@ static int us = 0;
  * @param gpio_rx GPIO pin used as RX
  * @return 1 if the initialization is successful. 0 otherwise.
  */
-// Hippy Changed Below
-// int raspberry_soft_uart_init(const int _gpio_tx, const int _gpio_rx)
-   int raspberry_soft_uart_init(const int _gpio_tx, const int _gpio_rx, const int _invert, const int _invert_tx, const int _invert_rx, const int _stop_bits, const int _break_tx, const int _break_rx)
-// Hippy - Changed Above
+int raspberry_soft_uart_init(const int _gpio_tx, const int _gpio_rx, const int _invert, const int _invert_tx, const int _invert_rx, const int _stop_bits, const int _break_tx, const int _break_rx)
 {
   bool success = true;
 
@@ -77,7 +64,6 @@ static int us = 0;
   gpio_tx = _gpio_tx;
   gpio_rx = _gpio_rx;
 
-  // Hippy - Added Below
   invert_tx = ( _invert_tx ^ _invert ) & 1;
   invert_rx = ( _invert_rx ^ _invert ) & 1;
   break_tx = _break_tx;
@@ -90,7 +76,6 @@ static int us = 0;
   {
     stop_bits = _stop_bits;
   }
-  // Hippy - Added Above
 
   if (gpio_tx >= 0)
   {    
@@ -105,12 +90,10 @@ static int us = 0;
   }
 
   // Initializes the interruption.
-  // Hippy - Added Below
   if (gpio_rx >= 0)
   {
     if ( invert_rx == 0 )
     {
-      // Hippy - Added Above
       success &= request_irq(
         gpio_to_irq(gpio_rx),
         (irq_handler_t) handle_rx_start,
@@ -118,7 +101,6 @@ static int us = 0;
         "soft_uart_irq_handler",
         NULL) == 0;
       disable_irq(gpio_to_irq(gpio_rx));
-      // Hippy - Added Below
     }
     else
     {
@@ -134,8 +116,7 @@ static int us = 0;
     {
       gpio_set_value(gpio_tx,1 ^ invert_tx);
     }
-  }
-  // Hippy - Added Above    
+  }  
   return success;
 }
 
@@ -151,9 +132,7 @@ int raspberry_soft_uart_finalize(void)
   if (gpio_tx >= 0)
   {
     gpio_set_value(gpio_tx, 0);
-    // Hippy - Added Below
     gpio_direction_input(gpio_rx);
-    // Hippy - Added Above
     gpio_free(gpio_tx);
   }
   if (gpio_rx >= 0)
@@ -229,7 +208,6 @@ int raspberry_soft_uart_set_baudrate(const int baudrate)
   {
     gpiod_set_debounce(gpio_to_desc(gpio_rx), 1000/baudrate/2);
   }
-  // Hippy - Added Below
   if      (baudrate ==   9600) { us = 104; } // 104.16
   else if (baudrate ==  19200) { us =  52; } //  52.08
   else if (baudrate ==  38400) { us =  26; } //  26.04
@@ -241,7 +219,6 @@ int raspberry_soft_uart_set_baudrate(const int baudrate)
   else if (baudrate == 115200) { us =   8; } //   8.68
   else                         { us =   0; }
   printk(KERN_INFO "soft_uart:   period = %llu, us = %d\n", period,us);
-  // Hippy - Added Above
   return 1;
 }
 
@@ -253,7 +230,6 @@ int raspberry_soft_uart_set_baudrate(const int baudrate)
  */
 int raspberry_soft_uart_send_string(const unsigned char* string, int string_size)
 {
-  // Hippy - Changed Below
   int result = 1;
   if (gpio_tx  >= 0)
   {
@@ -265,7 +241,6 @@ int raspberry_soft_uart_send_string(const unsigned char* string, int string_size
       hrtimer_start(&timer_tx, period, HRTIMER_MODE_REL);
     }
   }
-  // Hippy - Changed Above
 
   return result;
 }
@@ -311,10 +286,7 @@ static irqreturn_t handle_rx_start(int irq, void *device)
   if (rx_bit_index == -1)
   {
     hrtimer_start(&timer_rx, half_period, HRTIMER_MODE_REL);
-    // Hippy - Added Below - Testing control of interrupts
-    // See : https://github.com/adrianomarto/soft_uart/issues/4
-       disable_irq_nosync(gpio_to_irq(gpio_rx)); 
-    // Hippy - Added Above 
+    disable_irq_nosync(gpio_to_irq(gpio_rx)); 
   }
   return IRQ_HANDLED;
 }
@@ -327,8 +299,6 @@ static enum hrtimer_restart handle_tx(struct hrtimer* timer)
 {
   static int character = 0;
   static int bit_count = 0;
-
-  // Hippy - Changed Below - Speed improvements and more consistent timing
 
   // Start bit.
   if (bit_count == 0)
@@ -390,8 +360,6 @@ static enum hrtimer_restart handle_tx(struct hrtimer* timer)
   }
 
   return HRTIMER_NORESTART;
-
-  // Hippy - Changed Above
 }
 
 /*
@@ -399,8 +367,6 @@ static enum hrtimer_restart handle_tx(struct hrtimer* timer)
  */
 static enum hrtimer_restart handle_rx(struct hrtimer* timer)
 {
-  // Hippy - Changed below - Speed and accuracy improvements
-
   static int character = 0;
   ktime_t captured_time = ktime_get();
   int rx_bit = gpio_get_value(gpio_rx) ^ invert_rx;
@@ -417,10 +383,8 @@ static enum hrtimer_restart handle_rx(struct hrtimer* timer)
     else
     {
       // False start bit - Ignore
-      // Hippy - Added Below - Testing control of interrupts
       // See : https://github.com/adrianomarto/soft_uart/issues/4
-         enable_irq(gpio_to_irq(gpio_rx));
-      // Hippy - Added Above
+      enable_irq(gpio_to_irq(gpio_rx));
       return HRTIMER_NORESTART;
     }
   }
@@ -463,14 +427,10 @@ static enum hrtimer_restart handle_rx(struct hrtimer* timer)
       }
     }
     rx_bit_index = -1;
-    // Hippy - Added Below - Testing control of interrupts
     // See : https://github.com/adrianomarto/soft_uart/issues/4
-       enable_irq(gpio_to_irq(gpio_rx));
-    // Hippy - Added Above
+    enable_irq(gpio_to_irq(gpio_rx));
     return HRTIMER_NORESTART;
   }
-
-  // Hippy - Changed Above
 }
 
 /**

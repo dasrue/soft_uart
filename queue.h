@@ -1,7 +1,3 @@
-// Original author : Adriano Marto Reis
-// Original sourc  : https://github.com/adrianomarto/soft_uart
-// Modified by     : Hippy
-            
 #ifndef QUEUE_H
 #define QUEUE_H
 
@@ -15,13 +11,11 @@ struct queue
   int data[QUEUE_MAX_SIZE];
 };
 
-// Hippy - Added Below
+
 #define SET_BREAK_VAL -2
 #define CLR_BREAK_VAL -1
 
 void queue_set_break_char(int _break_char);
-// Hippy - Added Above
-
 void initialize_queue(struct queue* queue);
 int  enqueue_character(struct queue* queue, int character);
 int  dequeue_character(struct queue* queue, int* character);
